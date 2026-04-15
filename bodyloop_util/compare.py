@@ -1,4 +1,11 @@
-from dash import Dash, html, dcc, Input, Output, State, callback
+from dash import Dash, html, dcc, Input, Output, State, callback, no_update
+from bodyloop_sdk.client.client import Client, AuthenticatedClient
+from bodyloop_sdk.client.api.authentification import login_api_v2_authentification_token_post
+from bodyloop_sdk.client.models.body_login_api_v2_authentification_token_post import BodyLoginApiV2AuthentificationTokenPost
+
+from bodyloop_sdk.client.api.probands import (
+    get_probands_api_v2_probands_get,
+)
 
 web_app = Dash(__name__)
 
@@ -94,10 +101,41 @@ web_app.layout = html.Div(
     prevent_initial_call=True,
 )
 def compare(n_clicks, base_url, username, password):
+    if not n_clicks:
+        return no_update
+    
     if not base_url or not username or not password:
         return "Please fill in all fields."
     
-    # Here you would add the logic to compare the viatars using the provided credentials and base URL.
-    # For now, we will just return a placeholder message.
+   
+    try:
+        client = Client(
+            base_url=base_url,
+            verify_ssl=False,
+            timeout=3.0
+        )
+
+        response = login_api_v2_authentification_token_post.sync_detailed(
+            client=client,
+            body=BodyLoginApiV2AuthentificationTokenPost(
+                grant_type="password",
+                username=username,
+                password=password
+            )
+        )
+    except Exception as e:
+        return f"Could not connect to {base_url}. Please check the URL and that BodyLoop is running. {e}"
+
+    if response.status_code == 200:
+        api_token = response.parsed.access_token
+    else:
+        return "Login failed. Please check your credentials and try again."
+
+    client = AuthenticatedClient(
+        base_url=base_url,
+        verify_ssl=False,
+        token=api_token, 
+        timeout=10.0
+    )
     
     return "Comparison functionality is not yet implemented."
