@@ -51,102 +51,116 @@ def format_viatar_label(viatar_id: int, viatar) -> str:
 
 web_app.layout = html.Div(
     [
-
         html.Div(
             [
-                html.Button(
-                    "Load",
-                    id="load-button",
-                    n_clicks=0,
-                    disabled=False,
-                    style={"display": "block", "flexShrink": "0"},
+                html.Div(
+                    [
+                        html.Button(
+                            "Load",
+                            id="load-button",
+                            n_clicks=0,
+                            disabled=False,
+                            style={"display": "block", "flexShrink": "0"},
+                        ),
+                        html.Div(
+                            [
+                                html.Label("Base URL", style=FIELD_LABEL_STYLE),
+                                dcc.Input(
+                                    id="base-url-input",
+                                    type="text",
+                                    placeholder="https://bodyloop-control-pc ",
+                                    persistence=True,
+                                    persistence_type="local",
+                                    style={"width": "20rem"},
+                                ),
+                            ],
+                            style=FIELD_GROUP_STYLE,
+                        ),
+                        html.Div(
+                            [
+                                html.Label("Username", style=FIELD_LABEL_STYLE),
+                                dcc.Input(
+                                    id="username-input",
+                                    type="text",
+                                    placeholder="your-username",
+                                    persistence=True,
+                                    persistence_type="local",
+                                    style=FIELD_INPUT_STYLE,
+                                ),
+                            ],
+                            style=FIELD_GROUP_STYLE,
+                        ),
+                        html.Div(
+                            [
+                                html.Label("Password", style=FIELD_LABEL_STYLE),
+                                dcc.Input(
+                                    id="password-input",
+                                    type="password",
+                                    placeholder="Your password",
+                                    persistence=True,
+                                    persistence_type="local",
+                                    style=FIELD_INPUT_STYLE,
+                                ),
+                            ],
+                            style=FIELD_GROUP_STYLE,
+                        ),
+                    ],
+                    style=FIELD_ROW_STYLE,
                 ),
                 html.Div(
                     [
-                        html.Label("Base URL", style=FIELD_LABEL_STYLE),
-                        dcc.Input(
-                            id="base-url-input",
-                            type="text",
-                            placeholder="https://bodyloop-control-pc ",
-                            persistence=True,
-                            persistence_type="local",
-                            style={"width": "20rem"},
+                        html.Label("Compare Viatars of Proband", style=FIELD_LABEL_STYLE),
+                        dcc.Dropdown(
+                            id="proband-dropdown",
+                            options=[],
+                            value=None,
+                            placeholder="Click Load to fetch probands",
+                            style={"width": "28rem"},
                         ),
                     ],
-                    style=FIELD_GROUP_STYLE,
+                    style={"display": "flex", "alignItems": "center", "gap": "0.75rem", "marginTop": "1rem"},
+                ),
+            ],
+            id="header",
+        ),
+        html.Div(
+            [
+                html.Div(
+                    [
+                        html.Label("Viatar A", style=FIELD_LABEL_STYLE),
+                        dcc.Dropdown(
+                            id="viatar-dropdown-a",
+                            options=[],
+                            value=None,
+                            placeholder="Select a proband to fetch viatars",
+                            style={"width": "28rem"},
+                        ),
+                    ],
+                    style={"display": "flex", "alignItems": "center", "gap": "0.75rem", "marginTop": "1rem"},
                 ),
                 html.Div(
                     [
-                        html.Label("Username", style=FIELD_LABEL_STYLE),
-                        dcc.Input(
-                            id="username-input",
-                            type="text",
-                            placeholder="your-username",
-                            persistence=True,
-                            persistence_type="local",
-                            style=FIELD_INPUT_STYLE,
+                        html.Label("Viatar B", style=FIELD_LABEL_STYLE),
+                        dcc.Dropdown(
+                            id="viatar-dropdown-b",
+                            options=[],
+                            value=None,
+                            placeholder="Select a proband to fetch viatars",
+                            style={"width": "28rem"},
                         ),
                     ],
-                    style=FIELD_GROUP_STYLE,
-                ),
-                html.Div(
-                    [
-                        html.Label("Password", style=FIELD_LABEL_STYLE),
-                        dcc.Input(
-                            id="password-input",
-                            type="password",
-                            placeholder="Your password",
-                            persistence=True,
-                            persistence_type="local",
-                            style=FIELD_INPUT_STYLE,
-                        ),
-                    ],
-                    style=FIELD_GROUP_STYLE,
+                    style={"display": "flex", "alignItems": "center", "gap": "0.75rem", "marginTop": "1rem"},
                 ),
             ],
-            style=FIELD_ROW_STYLE,
+            id="body",
         ),
         html.Div(
             [
-                html.Label("Compare Viatars of Proband", style=FIELD_LABEL_STYLE),
-                dcc.Dropdown(
-                    id="proband-dropdown",
-                    options=[],
-                    value=None,
-                    placeholder="Click Load to fetch probands",
-                    style={"width": "28rem"},
-                ),
+                html.Div(id="load-info", style={"marginTop": "1rem"}),
             ],
-            style={"display": "flex", "alignItems": "center", "gap": "0.75rem", "marginTop": "1rem"},
-        ),
-        html.Div(
-            [
-                html.Label("Viatar A", style=FIELD_LABEL_STYLE),
-                dcc.Dropdown(
-                    id="viatar-dropdown-a",
-                    options=[],
-                    value=None,
-                    placeholder="Select a proband to fetch viatars",
-                    style={"width": "28rem"},
-                ),
-            ],
-            style={"display": "flex", "alignItems": "center", "gap": "0.75rem", "marginTop": "1rem"},
-        ),
-        html.Div(
-            [
-                html.Label("Viatar B", style=FIELD_LABEL_STYLE),
-                dcc.Dropdown(
-                    id="viatar-dropdown-b",
-                    options=[],
-                    value=None,
-                    placeholder="Select a proband to fetch viatars",
-                    style={"width": "28rem"},
-                ),
-            ],
-            style={"display": "flex", "alignItems": "center", "gap": "0.75rem", "marginTop": "1rem"},
+            id="footer",
         ),
         dcc.Store(id="auth-store"),
-        html.Div(id="load-info", style={"marginTop": "1rem"}),
     ],
     style={"padding": "2rem"},
 )
