@@ -1,7 +1,7 @@
 [project]
-name = "tinker-uv"
+name = "bodyloop-util"
 version = "0.1.0"
-description = "Add your description here"
+description = "BodyLoop Utilities"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tinker-uv = "tinker_uv.cli:main"
+bodyloop-util = "bodyloop_util.cli:main"
 
 [tool.uv]
 package = true
