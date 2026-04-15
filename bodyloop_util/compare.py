@@ -1,6 +1,8 @@
 from dash import Dash, html, dcc, Input, Output, State, callback, no_update, dash_table, ctx
 import json
 import pandas as pd
+import plotly.graph_objects as go
+from plotly.colors import qualitative
 from bodyloop_sdk.client.client import Client, AuthenticatedClient
 from bodyloop_sdk.client.api.authentification import login_api_v2_authentification_token_post
 from bodyloop_sdk.client.models.body_login_api_v2_authentification_token_post import BodyLoginApiV2AuthentificationTokenPost
@@ -82,26 +84,77 @@ def build_axes_component(client: AuthenticatedClient, selected_viatar_id):
 
     # Axis instances are SDK model objects. Convert via to_dict() so all values are JSON-safe.
     axes_rows = []
+    vector_specs = []
     for axis in axes:
         axis_dict = axis.to_dict() if hasattr(axis, "to_dict") else {}
+        rotation = axis_dict.get("rotation", None)
+
         axes_rows.append(
             {
                 "Axis Path": axis_dict.get("axis_path", ""),
-                "Rotation": json.dumps(axis_dict.get("rotation", None), ensure_ascii=False),
+                "Rotation": json.dumps(rotation, ensure_ascii=False),
             }
         )
+
+        if isinstance(rotation, dict) and "xy" in rotation:
+            try:
+                vector_specs.append(
+                    {
+                        "axis_path": axis_dict.get("axis_path", ""),
+                        "angle_rad": float(rotation["xy"]),
+                    }
+                )
+            except (TypeError, ValueError):
+                pass
 
     axes_df = pd.DataFrame(axes_rows, columns=["Axis Path", "Rotation"])
     if axes_df.empty:
         return html.Div("No axes found for this viatar.", style={"marginTop": "0.75rem", "color": "#666"})
 
-    return dash_table.DataTable(
+    axes_table = dash_table.DataTable(
         data=axes_df.to_dict("records"),
         columns=[{"name": col, "id": col} for col in axes_df.columns],
         page_size=12,
         style_table={"marginTop": "0.75rem", "overflowX": "auto"},
         style_cell={"textAlign": "left", "padding": "0.35rem"},
     )
+
+    if vector_specs:
+        figure = go.Figure()
+        color_cycle = qualitative.Plotly
+
+        for index, spec in enumerate(vector_specs):
+            angle_deg = spec["angle_rad"] * 180.0 / 3.141592653589793
+            figure.add_trace(
+                go.Scatterpolar(
+                    theta=[angle_deg, angle_deg],
+                    r=[0, 1],
+                    mode="lines",
+                    line={"width": 3, "color": color_cycle[index % len(color_cycle)]},
+                    name=spec["axis_path"] or f"axis_{index+1}",
+                )
+            )
+
+        figure.update_layout(
+            showlegend=True,
+            margin={"l": 20, "r": 20, "t": 30, "b": 20},
+            polar={
+                "radialaxis": {"visible": True, "range": [0, 1]},
+                "angularaxis": {"direction": "counterclockwise"},
+            },
+        )
+        polar_plot = dcc.Graph(
+            figure=figure,
+            config={"displayModeBar": False},
+            style={"marginTop": "0.75rem", "height": "360px", "width": "100%"},
+        )
+    else:
+        polar_plot = html.Div(
+            "No XY rotation values available for polar plot.",
+            style={"marginTop": "0.75rem", "color": "#666"},
+        )
+
+    return html.Div([axes_table, polar_plot], style={"width": "100%"})
 
 web_app.layout = html.Div(
     [
