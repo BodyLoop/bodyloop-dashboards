@@ -41,7 +41,7 @@ FIELD_INPUT_STYLE = {"width": "16rem"}
 
 BODY_TWO_COLUMN_STYLE = {
     "display": "grid",
-    "gridTemplateColumns": "1fr 1fr",
+    "gridTemplateColumns": "1fr 1fr 1fr",
     "columnGap": "1.5rem",
     "alignItems": "start",
     "marginTop": "1rem",
@@ -65,14 +65,51 @@ def format_viatar_label(viatar_id: int, viatar) -> str:
     return f"{created_at.strftime('%Y-%m-%d %H:%M:%S')} ({viatar_id}) {viatar.note or ''}".strip()
 
 
-def build_axes_component(client: AuthenticatedClient, selected_viatar_id):
+def build_polar_plot(vector_specs: list[dict], empty_message: str):
+    if not vector_specs:
+        return html.Div(
+            empty_message,
+            style={"marginTop": "0.75rem", "color": "#666"},
+        )
+
+    figure = go.Figure()
+    color_cycle = qualitative.Plotly
+
+    for index, spec in enumerate(vector_specs):
+        angle_deg = spec["angle_rad"] * 180.0 / 3.141592653589793
+        figure.add_trace(
+            go.Scatterpolar(
+                theta=[angle_deg, angle_deg],
+                r=[0, 1],
+                mode="lines",
+                line={"width": 3, "color": color_cycle[index % len(color_cycle)]},
+                name=spec["axis_path"] or f"axis_{index+1}",
+            )
+        )
+
+    figure.update_layout(
+        showlegend=True,
+        margin={"l": 20, "r": 20, "t": 30, "b": 20},
+        polar={
+            "radialaxis": {"visible": True, "range": [0, 1]},
+            "angularaxis": {"direction": "counterclockwise"},
+        },
+    )
+    return dcc.Graph(
+        figure=figure,
+        config={"displayModeBar": False},
+        style={"marginTop": "0.75rem", "height": "360px", "width": "100%"},
+    )
+
+
+def get_axes_payload(client: AuthenticatedClient, selected_viatar_id):
     if not selected_viatar_id:
-        return html.Div("Select a viatar to load axes.", style={"marginTop": "0.75rem", "color": "#666"})
+        return None, "Select a viatar to load axes."
 
     try:
         viatar_id = int(selected_viatar_id)
     except (TypeError, ValueError):
-        return html.Div("Invalid viatar selection.", style={"marginTop": "0.75rem", "color": "#b00020"})
+        return None, "Invalid viatar selection."
 
     axes = get_axes_api_v2_viatars_viatar_id_axes_get.sync(
         client=client,
@@ -80,33 +117,36 @@ def build_axes_component(client: AuthenticatedClient, selected_viatar_id):
     )
 
     if not axes:
-        return html.Div("No axes found for this viatar.", style={"marginTop": "0.75rem", "color": "#666"})
+        return None, "No axes found for this viatar."
 
-    # Axis instances are SDK model objects. Convert via to_dict() so all values are JSON-safe.
-    axes_rows = []
-    vector_specs = []
+    axes_rows: list[dict] = []
+    xy_by_axis_path: dict[str, float] = {}
     for axis in axes:
         axis_dict = axis.to_dict() if hasattr(axis, "to_dict") else {}
         rotation = axis_dict.get("rotation", None)
+        axis_path = axis_dict.get("axis_path", "")
 
         axes_rows.append(
             {
-                "Axis Path": axis_dict.get("axis_path", ""),
+                "Axis Path": axis_path,
                 "Rotation": json.dumps(rotation, ensure_ascii=False),
             }
         )
 
         if isinstance(rotation, dict) and "xy" in rotation:
             try:
-                vector_specs.append(
-                    {
-                        "axis_path": axis_dict.get("axis_path", ""),
-                        "angle_rad": float(rotation["xy"]),
-                    }
-                )
+                xy_by_axis_path[axis_path] = float(rotation["xy"])
             except (TypeError, ValueError):
                 pass
 
+    return {
+        "rows": axes_rows,
+        "xy_by_axis_path": xy_by_axis_path,
+    }, None
+
+
+def build_axes_component_from_payload(payload: dict):
+    axes_rows = payload.get("rows", [])
     axes_df = pd.DataFrame(axes_rows, columns=["Axis Path", "Rotation"])
     if axes_df.empty:
         return html.Div("No axes found for this viatar.", style={"marginTop": "0.75rem", "color": "#666"})
@@ -119,42 +159,54 @@ def build_axes_component(client: AuthenticatedClient, selected_viatar_id):
         style_cell={"textAlign": "left", "padding": "0.35rem"},
     )
 
-    if vector_specs:
-        figure = go.Figure()
-        color_cycle = qualitative.Plotly
-
-        for index, spec in enumerate(vector_specs):
-            angle_deg = spec["angle_rad"] * 180.0 / 3.141592653589793
-            figure.add_trace(
-                go.Scatterpolar(
-                    theta=[angle_deg, angle_deg],
-                    r=[0, 1],
-                    mode="lines",
-                    line={"width": 3, "color": color_cycle[index % len(color_cycle)]},
-                    name=spec["axis_path"] or f"axis_{index+1}",
-                )
-            )
-
-        figure.update_layout(
-            showlegend=True,
-            margin={"l": 20, "r": 20, "t": 30, "b": 20},
-            polar={
-                "radialaxis": {"visible": True, "range": [0, 1]},
-                "angularaxis": {"direction": "counterclockwise"},
-            },
-        )
-        polar_plot = dcc.Graph(
-            figure=figure,
-            config={"displayModeBar": False},
-            style={"marginTop": "0.75rem", "height": "360px", "width": "100%"},
-        )
-    else:
-        polar_plot = html.Div(
-            "No XY rotation values available for polar plot.",
-            style={"marginTop": "0.75rem", "color": "#666"},
-        )
+    vector_specs = [
+        {"axis_path": axis_path, "angle_rad": angle}
+        for axis_path, angle in payload.get("xy_by_axis_path", {}).items()
+    ]
+    polar_plot = build_polar_plot(vector_specs, "No XY rotation values available for polar plot.")
 
     return html.Div([axes_table, polar_plot], style={"width": "100%"})
+
+
+def build_delta_component(payload_a: dict | None, payload_b: dict | None):
+    if not payload_a or not payload_b:
+        return html.Div("Fetch both A and B to show delta (B - A).", style={"marginTop": "0.75rem", "color": "#666"})
+
+    xy_a = payload_a.get("xy_by_axis_path", {})
+    xy_b = payload_b.get("xy_by_axis_path", {})
+    common_axis_paths = sorted(set(xy_a.keys()) & set(xy_b.keys()))
+    if not common_axis_paths:
+        return html.Div("No shared XY axis rotations between A and B.", style={"marginTop": "0.75rem", "color": "#666"})
+
+    delta_rows = []
+    vector_specs = []
+    for axis_path in common_axis_paths:
+        diff = float(xy_b[axis_path]) - float(xy_a[axis_path])
+        delta_rows.append(
+            {
+                "Axis Path": axis_path,
+                "XY A": round(float(xy_a[axis_path]), 6),
+                "XY B": round(float(xy_b[axis_path]), 6),
+                "XY Diff (B-A)": round(diff, 6),
+            }
+        )
+        vector_specs.append({"axis_path": axis_path, "angle_rad": diff})
+
+    delta_table = dash_table.DataTable(
+        data=delta_rows,
+        columns=[
+            {"name": "Axis Path", "id": "Axis Path"},
+            {"name": "XY A", "id": "XY A"},
+            {"name": "XY B", "id": "XY B"},
+            {"name": "XY Diff (B-A)", "id": "XY Diff (B-A)"},
+        ],
+        page_size=12,
+        style_table={"marginTop": "0.75rem", "overflowX": "auto"},
+        style_cell={"textAlign": "left", "padding": "0.35rem"},
+    )
+
+    delta_plot = build_polar_plot(vector_specs, "No XY delta values available for polar plot.")
+    return html.Div([delta_table, delta_plot], style={"width": "100%"})
 
 web_app.layout = html.Div(
     [
@@ -259,6 +311,13 @@ web_app.layout = html.Div(
                 ),
                 html.Div(
                     [
+                        html.Label("Delta (B - A)", style=FIELD_LABEL_STYLE),
+                        html.Div(id="axes-delta-container"),
+                    ],
+                    style={"display": "flex", "flexDirection": "column", "alignItems": "flex-start", "gap": "0.75rem"},
+                ),
+                html.Div(
+                    [
                         html.Label("Viatar B", style=FIELD_LABEL_STYLE),
                         html.Div(
                             [
@@ -293,6 +352,8 @@ web_app.layout = html.Div(
             id="footer",
         ),
         dcc.Store(id="auth-store"),
+        dcc.Store(id="axes-a-store"),
+        dcc.Store(id="axes-b-store"),
     ],
     style={"padding": "2rem"},
 )
@@ -438,6 +499,8 @@ def load_viatars_for_proband(selected_proband_id, auth_data):
 @callback(
     Output("axes-a-container", "children"),
     Output("axes-b-container", "children"),
+    Output("axes-a-store", "data"),
+    Output("axes-b-store", "data"),
     Input("fetch-a-button", "n_clicks"),
     Input("fetch-b-button", "n_clicks"),
     State("viatar-dropdown-a", "value"),
@@ -447,18 +510,18 @@ def load_viatars_for_proband(selected_proband_id, auth_data):
 )
 def load_axes_for_selected_viatars(fetch_a_clicks, fetch_b_clicks, viatar_a_id, viatar_b_id, auth_data):
     if not fetch_a_clicks and not fetch_b_clicks:
-        return no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     triggered_id = ctx.triggered_id
 
     if triggered_id == "fetch-a-button":
         if not auth_data:
-            return html.Div("Load credentials first."), no_update
+            return html.Div("Load credentials first."), no_update, None, no_update
 
         base_url = auth_data.get("base_url")
         api_token = auth_data.get("api_token")
         if not base_url or not api_token:
-            return html.Div("Load credentials first."), no_update
+            return html.Div("Load credentials first."), no_update, None, no_update
 
         client = AuthenticatedClient(
             base_url=base_url,
@@ -466,16 +529,20 @@ def load_axes_for_selected_viatars(fetch_a_clicks, fetch_b_clicks, viatar_a_id, 
             token=api_token,
             timeout=10.0,
         )
-        return build_axes_component(client, viatar_a_id), no_update
+        payload_a, error_a = get_axes_payload(client, viatar_a_id)
+        if error_a:
+            return html.Div(error_a, style={"marginTop": "0.75rem", "color": "#b00020"}), no_update, None, no_update
+
+        return build_axes_component_from_payload(payload_a), no_update, payload_a, no_update
 
     if triggered_id == "fetch-b-button":
         if not auth_data:
-            return no_update, html.Div("Load credentials first.")
+            return no_update, html.Div("Load credentials first."), no_update, None
 
         base_url = auth_data.get("base_url")
         api_token = auth_data.get("api_token")
         if not base_url or not api_token:
-            return no_update, html.Div("Load credentials first.")
+            return no_update, html.Div("Load credentials first."), no_update, None
 
         client = AuthenticatedClient(
             base_url=base_url,
@@ -483,6 +550,19 @@ def load_axes_for_selected_viatars(fetch_a_clicks, fetch_b_clicks, viatar_a_id, 
             token=api_token,
             timeout=10.0,
         )
-        return no_update, build_axes_component(client, viatar_b_id)
+        payload_b, error_b = get_axes_payload(client, viatar_b_id)
+        if error_b:
+            return no_update, html.Div(error_b, style={"marginTop": "0.75rem", "color": "#b00020"}), no_update, None
 
-    return no_update, no_update
+        return no_update, build_axes_component_from_payload(payload_b), no_update, payload_b
+
+    return no_update, no_update, no_update, no_update
+
+
+@callback(
+    Output("axes-delta-container", "children"),
+    Input("axes-a-store", "data"),
+    Input("axes-b-store", "data"),
+)
+def load_delta_view(axes_a_payload, axes_b_payload):
+    return build_delta_component(axes_a_payload, axes_b_payload)
