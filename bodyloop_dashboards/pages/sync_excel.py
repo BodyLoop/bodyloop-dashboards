@@ -4,7 +4,7 @@ import os
 from io import BytesIO
 import pandas as pd
 from openpyxl import load_workbook
-from datetime import datetime
+from datetime import datetime, date
 from bodyloop_sdk.client.client import Client, AuthenticatedClient
 from bodyloop_sdk.client.api.authentification import login_api_v2_authentification_token_post
 from bodyloop_sdk.client.models.body_login_api_v2_authentification_token_post import BodyLoginApiV2AuthentificationTokenPost
@@ -80,6 +80,25 @@ def split_player_name(full_name: str) -> tuple[str, str]:
         return "", parts[0]
     return " ".join(parts[:-1]), parts[-1]
 
+
+def transform_player_birthday(birthday) -> date:
+    default_birthday = date(1900, 1, 1)
+    
+    if birthday is None:
+        return default_birthday
+
+    s = str(birthday).strip()
+
+    if s.isdigit():
+        # year-only → decide what to do
+        return date(int(s), 1, 1)  # or return None instead
+
+    ts = pd.to_datetime(s, errors="coerce")
+
+    if pd.isna(ts):
+        return default_birthday
+
+    return ts.date()
 
 @callback(
     Output("stored-file-content", "data"),
@@ -157,13 +176,14 @@ def sync(n_clicks, content_string, base_url, username, password):
 
     file_bytes = base64.b64decode(content_string)
     players = pd.read_excel(BytesIO(file_bytes), header=1)
-    
+
     probands = pd.DataFrame([proband.to_dict() for proband in get_probands_api_v2_probands_get.sync(client=client)])
     
     # Additional columns
     players["sync_status"] = pd.Series(dtype="string")
     players["proband_id"] = pd.Series(dtype="Int64")
     players["viatar_id"] = pd.Series(dtype="Int64")
+    # players["PLAYER_BIRTHDAY"] = pd.Series(dtype="string")
     players["DATE"] = pd.Series(dtype="string")
 
     # First pass (read-only): Try to find player by PLAYER_ID and key_external
@@ -178,15 +198,15 @@ def sync(n_clicks, content_string, base_url, username, password):
 
     # Second pass (update): For players that still don't have a proband_id, try to match by name and birthdate
     for player in players[players["proband_id"].isna()].itertuples():
-        print(f"{player.PLAYER_NAME} {player.PLAYER_BIRTHDAY.date()} couldn't be found by its PLAYER_ID. Try to find match by name and birthdate")
+        print(f"{player.PLAYER_NAME} {transform_player_birthday(player.PLAYER_BIRTHDAY)} couldn't be found by its PLAYER_ID. Try to find match by name and birthdate")
         
         (name_given, name_family) = split_player_name(player.PLAYER_NAME)
         print(f"name_given: {name_given} name_family: {name_family}")
         
-        matching_probands = probands[(probands["name_given"] == name_given) & (probands["name_family"] == name_family) & (probands["date_of_birth"] == player.PLAYER_BIRTHDAY.date().isoformat())]
+        matching_probands = probands[(probands["name_given"] == name_given) & (probands["name_family"] == name_family) & (probands["date_of_birth"] == transform_player_birthday(player.PLAYER_BIRTHDAY).isoformat())]
         if not matching_probands.empty:
             players.at[player.Index, 'proband_id'] = matching_probands.iloc[0]['proband_id']
-            print(f"Found match for {player.PLAYER_NAME} {player.PLAYER_BIRTHDAY.date()}. Completing with PLAYER_ID {player.PLAYER_ID}")
+            print(f"Found match for {player.PLAYER_NAME} {transform_player_birthday(player.PLAYER_BIRTHDAY)}. Completing with PLAYER_ID {player.PLAYER_ID}")
             modified_proband = update_proband_api_v2_probands_proband_id_patch.sync(
                 client=client,
                 proband_id=matching_probands.iloc[0]['proband_id'],
@@ -214,14 +234,14 @@ def sync(n_clicks, content_string, base_url, username, password):
                 body=ProbandData(
                     name_given=name_given,
                     name_family=name_family,
-                    date_of_birth=player.PLAYER_BIRTHDAY.date().isoformat(),
+                    date_of_birth=transform_player_birthday(player.PLAYER_BIRTHDAY).isoformat(),
                 )
             )
             players.at[player.Index, 'sync_status'] = "Updated"
 
     # Forth pass (add): For players that still don't have a proband_id, create new probands
     for player in players[players["proband_id"].isna()].itertuples():
-        print(f"{player.PLAYER_NAME} {player.PLAYER_BIRTHDAY.date()} couldn't be found by its PLAYER_ID and name. Creating new proband.")
+        print(f"{player.PLAYER_NAME} {transform_player_birthday(player.PLAYER_BIRTHDAY)} couldn't be found by its PLAYER_ID and name. Creating new proband.")
 
         (name_given, name_family) = split_player_name(player.PLAYER_NAME)
         created_proband = create_proband_api_v2_probands_post.sync(
@@ -230,7 +250,7 @@ def sync(n_clicks, content_string, base_url, username, password):
                 key_external=player.PLAYER_ID,
                 name_given=name_given,
                 name_family=name_family,
-                date_of_birth=player.PLAYER_BIRTHDAY.date().isoformat(),
+                date_of_birth=transform_player_birthday(player.PLAYER_BIRTHDAY).isoformat(),
             )
         )
         players.at[player.Index, 'proband_id'] = created_proband.proband_id
